@@ -19,7 +19,7 @@ Model:
   ref_view_strategy_loop: 'saddle_balanced' # 'middle', 'saddle_balanced', 'first' or 'saddle_sim_range'
   depth_threshold: 15.0
 
-  save_depth_conf_result: True
+  save_depth_conf_result: False
   save_debug_info: False
 
   Sparse_Align:

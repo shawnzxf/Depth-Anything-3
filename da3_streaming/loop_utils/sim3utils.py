@@ -543,13 +543,14 @@ def compute_sim3_ab(S_a, S_b):
     return (s_ab, R_ab, T_ab)
 
 
-def merge_ply_files(input_dir, output_path):
+def merge_ply_files(input_dir, output_path, delete_after_merge=False):
     """
     Merge all PLY files in a directory into one file (without loading into memory)
 
     Args:
     - input_dir: Input directory containing multiple '{idx}_pcd.ply' files
     - output_path: Output file path (e.g., 'combined.ply')
+    - delete_after_merge: If True, delete the individual PLY files after merging
     """
 
     print("Merging PLY files...")
@@ -605,6 +606,11 @@ def merge_ply_files(input_dir, output_path):
 
     print(f"Merge completed! Total points: {total_vertices}")
     print(f"Output file: {output_path}")
+
+    if delete_after_merge:
+        for file in input_files:
+            os.remove(file)
+        print(f"Deleted {len(input_files)} individual PLY files")
 
 
 def weighted_estimate_se3(source_points, target_points, weights):
