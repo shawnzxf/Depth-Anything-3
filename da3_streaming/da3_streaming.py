@@ -14,6 +14,10 @@
 #
 # Adapted from [VGGT-Long](https://github.com/DengKaiCQ/VGGT-Long)
 
+"""
+nohup python da3_streaming.py --image_dir /home/ubuntu/sky_workdir/nav_vid_data_pipeline/sample_dataset/z8At5dmBo6M/frames_2k --output_dir /home/ubuntu/sky_workdir/nav_vid_data_pipeline/sample_dataset/z8At5dmBo6M/da3_outputs/frames_2k > /home/ubuntu/sky_workdir/nav_vid_data_pipeline/logs/z8At5dmBo6M_2k_02222251.log 2>&1 &
+"""
+
 import argparse
 import gc
 import glob
@@ -21,6 +25,7 @@ import json
 import os
 import shutil
 import sys
+import time
 from datetime import datetime
 import matplotlib
 import matplotlib.pyplot as plt
@@ -131,6 +136,8 @@ def remove_duplicates(data_list):
 
 class DA3_Streaming:
     def __init__(self, image_dir, save_dir, config):
+        start_time_init = time.time()
+
         self.config = config
 
         self.chunk_size = self.config["Model"]["chunk_size"]
@@ -197,7 +204,8 @@ class DA3_Streaming:
             )
             self.loop_detector.load_model()
 
-        print("init done.")
+        init_time = time.time() - start_time_init
+        print(f"init done. [Timing] __init__: {init_time:.3f}s")
 
     def get_loop_pairs(self):
         self.loop_detector.run()
@@ -537,12 +545,21 @@ class DA3_Streaming:
         pre_predictions = None
         for chunk_idx in range(len(self.chunk_indices)):
             print(f"[Progress]: {chunk_idx}/{len(self.chunk_indices)}")
+
+            # Time the chunk processing
+            start_time_chunk = time.time()
             cur_predictions = self.process_single_chunk(
                 self.chunk_indices[chunk_idx], chunk_idx=chunk_idx
             )
+            chunk_processing_time = time.time() - start_time_chunk
+            print(f"[Timing] process_single_chunk: {chunk_processing_time:.3f}s")
+
             torch.cuda.empty_cache()
 
             if chunk_idx > 0:
+                # Time the alignment process
+                start_time_align = time.time()
+
                 print(
                     f"Aligning {chunk_idx-1} and {chunk_idx} (Total {len(self.chunk_indices)-1})"
                 )
@@ -584,9 +601,14 @@ class DA3_Streaming:
                 )
                 self.sim3_list.append((s, R, t))
 
+                alignment_time = time.time() - start_time_align
+                print(f"[Timing] alignment: {alignment_time:.3f}s")
+
             pre_predictions = cur_predictions
 
         if self.loop_enable:
+            start_time_loop = time.time()
+
             self.loop_list = self.get_loop_pairs()
             del self.loop_detector  # Save GPU Memory
 
@@ -623,7 +645,12 @@ class DA3_Streaming:
                 input_abs_poses, optimized_abs_poses, save_name="sim3_opt_result.png"
             )
 
+            loop_optimization_time = time.time() - start_time_loop
+            print(f"[Timing] loop closure optimization: {loop_optimization_time:.3f}s")
+
         print("Apply alignment")
+        start_time_apply = time.time()
+
         self.sim3_list = accumulate_sim3_transforms(self.sim3_list)
         for chunk_idx in range(len(self.chunk_indices) - 1):
             print(f"Applying {chunk_idx+1} -> {chunk_idx} (Total {len(self.chunk_indices)-1})")
@@ -696,9 +723,14 @@ class DA3_Streaming:
 
         self.save_camera_poses()
 
+        apply_alignment_time = time.time() - start_time_apply
+        print(f"[Timing] apply alignment: {apply_alignment_time:.3f}s")
+
         print("Done.")
 
     def run(self):
+        start_time_run = time.time()
+
         print(f"Loading images from {self.img_dir}...")
         self.img_list = sorted(
             glob.glob(os.path.join(self.img_dir, "*.jpg"))
@@ -710,6 +742,9 @@ class DA3_Streaming:
         print(f"Found {len(self.img_list)} images")
 
         self.process_long_sequence()
+
+        run_time = time.time() - start_time_run
+        print(f"[Timing] run() total time: {run_time:.3f}s")
 
     def save_camera_poses(self):
         """
@@ -733,6 +768,7 @@ class DA3_Streaming:
 
         all_poses = [None] * len(self.img_list)
         all_intrinsics = [None] * len(self.img_list)
+        all_chunk_ids = [0] * len(self.img_list)
 
         first_chunk_range, first_chunk_extrinsics = self.all_camera_poses[0]
         _, first_chunk_intrinsics = self.all_camera_intrinsics[0]
@@ -745,6 +781,7 @@ class DA3_Streaming:
             c2w = np.linalg.inv(w2c)
             all_poses[idx] = c2w
             all_intrinsics[idx] = first_chunk_intrinsics[i]
+            all_chunk_ids[idx] = 0
 
         for chunk_idx in range(1, len(self.all_camera_poses)):
             chunk_range, chunk_extrinsics = self.all_camera_poses[chunk_idx]
@@ -773,6 +810,7 @@ class DA3_Streaming:
 
                 all_poses[idx] = transformed_c2w
                 all_intrinsics[idx] = chunk_intrinsics[i + self.overlap_s]
+                all_chunk_ids[idx] = chunk_idx
 
         poses_path = os.path.join(self.output_dir, "camera_poses.txt")
         with open(poses_path, "w") as f:
@@ -793,26 +831,77 @@ class DA3_Streaming:
 
         print(f"Camera intrinsics saved to {intrinsics_path}")
 
+        # Build pyramid frustum geometry for each camera.
+        # Each frustum has 5 vertices: apex (camera center) + 4 base corners.
+        # The base corners are the 4 image corners un-projected to world space at
+        # depth = frustum_scale, giving an oriented pyramid that encodes rotation.
+        frustum_scale = 0.1  # depth of the frustum in scene units
+
+        ply_vertices = []  # (x, y, z, r, g, b)
+        ply_edges = []     # (v1_idx, v2_idx)
+        vertex_offset = 0
+
+        for pose, intrinsic, chunk_id in zip(all_poses, all_intrinsics, all_chunk_ids):
+            color = chunk_colors[chunk_id % len(chunk_colors)]
+            fx = intrinsic[0, 0]
+            fy = intrinsic[1, 1]
+            cx = intrinsic[0, 2]
+            cy = intrinsic[1, 2]
+
+            # Camera center (pyramid apex)
+            center = pose[:3, 3]
+            R = pose[:3, :3]
+
+            # 4 image corner rays in camera space (principal-point-aware),
+            # scaled to frustum_scale depth.  W ≈ 2*cx, H ≈ 2*cy.
+            corners_cam = np.array([
+                [-cx / fx, -cy / fy, 1.0],  # top-left  (1)
+                [ cx / fx, -cy / fy, 1.0],  # top-right (2)
+                [ cx / fx,  cy / fy, 1.0],  # bot-right (3)
+                [-cx / fx,  cy / fy, 1.0],  # bot-left  (4)
+            ]) * frustum_scale
+
+            # Transform corners to world space
+            corners_world = (R @ corners_cam.T).T + center
+
+            # Apex vertex (index 0 within this frustum)
+            ply_vertices.append((center[0], center[1], center[2],
+                                  color[0], color[1], color[2]))
+            # 4 base corner vertices (indices 1-4)
+            for corner in corners_world:
+                ply_vertices.append((corner[0], corner[1], corner[2],
+                                     color[0], color[1], color[2]))
+
+            # 4 edges: apex -> each corner
+            for k in range(1, 5):
+                ply_edges.append((vertex_offset, vertex_offset + k))
+            # 4 edges: base rectangle
+            ply_edges.append((vertex_offset + 1, vertex_offset + 2))
+            ply_edges.append((vertex_offset + 2, vertex_offset + 3))
+            ply_edges.append((vertex_offset + 3, vertex_offset + 4))
+            ply_edges.append((vertex_offset + 4, vertex_offset + 1))
+
+            vertex_offset += 5
+
         ply_path = os.path.join(self.output_dir, "camera_poses.ply")
         with open(ply_path, "w") as f:
-            # Write PLY header
             f.write("ply\n")
             f.write("format ascii 1.0\n")
-            f.write(f"element vertex {len(all_poses)}\n")
+            f.write(f"element vertex {len(ply_vertices)}\n")
             f.write("property float x\n")
             f.write("property float y\n")
             f.write("property float z\n")
             f.write("property uchar red\n")
             f.write("property uchar green\n")
             f.write("property uchar blue\n")
+            f.write(f"element edge {len(ply_edges)}\n")
+            f.write("property int vertex1\n")
+            f.write("property int vertex2\n")
             f.write("end_header\n")
-
-            color = chunk_colors[0]
-            for pose in all_poses:
-                position = pose[:3, 3]
-                f.write(
-                    f"{position[0]} {position[1]} {position[2]} {color[0]} {color[1]} {color[2]}\n"
-                )
+            for v in ply_vertices:
+                f.write(f"{v[0]} {v[1]} {v[2]} {v[3]} {v[4]} {v[5]}\n")
+            for e in ply_edges:
+                f.write(f"{e[0]} {e[1]}\n")
 
         print(f"Camera poses visualization saved to {ply_path}")
 
@@ -878,6 +967,9 @@ def copy_file(src_path, dst_dir):
 
 
 if __name__ == "__main__":
+    start_time_main = time.time()
+
+    print(f"CUDA_VISIBLE_DEVICES={os.environ.get('CUDA_VISIBLE_DEVICES')}")
 
     parser = argparse.ArgumentParser(description="DA3-Streaming")
     parser.add_argument("--image_dir", type=str, required=True, help="Image path")
@@ -885,7 +977,7 @@ if __name__ == "__main__":
         "--config",
         type=str,
         required=False,
-        default="./configs/base_config.yaml",
+        default="/home/ubuntu/sky_workdir/Depth-Anything-3/da3_streaming/configs/base_config.yaml",
         help="Image path",
     )
     parser.add_argument("--output_dir", type=str, required=False, default=None, help="Output path")
@@ -919,9 +1011,18 @@ if __name__ == "__main__":
     torch.cuda.empty_cache()
     gc.collect()
 
+    start_time_merge = time.time()
+
     all_ply_path = os.path.join(save_dir, "pcd/combined_pcd.ply")
     input_dir = os.path.join(save_dir, "pcd")
     print("Saving all the point clouds")
     merge_ply_files(input_dir, all_ply_path)
+
+    merge_time = time.time() - start_time_merge
+    print(f"[Timing] merge PLY files: {merge_time:.3f}s")
+
+    main_time = time.time() - start_time_main
+    print(f"[Timing] total main execution: {main_time:.3f}s")
+
     print("DA3-Streaming done.")
     sys.exit()

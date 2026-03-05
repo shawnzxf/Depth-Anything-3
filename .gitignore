@@ -33,3 +33,9 @@ input_images*/
 src/debug_main.py
 temp*.png
 /outputs
+
+.gitignore
+
+da3_streaming/exps/*
+da3_streaming/logs/*
+da3_streaming/weights/*

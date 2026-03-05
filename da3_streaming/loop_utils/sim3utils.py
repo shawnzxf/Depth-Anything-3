@@ -554,7 +554,11 @@ def merge_ply_files(input_dir, output_path):
 
     print("Merging PLY files...")
 
-    input_files = sorted(glob.glob(os.path.join(input_dir, "*_pcd.ply")))
+    output_path_abs = os.path.abspath(output_path)
+    input_files = sorted([
+        f for f in glob.glob(os.path.join(input_dir, "*_pcd.ply"))
+        if os.path.abspath(f) != output_path_abs
+    ])
 
     if not input_files:
         print("No PLY files found")

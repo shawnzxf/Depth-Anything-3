@@ -1,7 +1,7 @@
 Weights:
-  DA3: './weights/model.safetensors'
-  DA3_CONFIG: './weights/config.json'
-  SALAD: './weights/dino_salad.ckpt'
+  DA3: '/home/ubuntu/sky_workdir/Depth-Anything-3/da3_streaming/weights/model.safetensors'
+  DA3_CONFIG: '/home/ubuntu/sky_workdir/Depth-Anything-3/da3_streaming/weights/config.json'
+  SALAD: '/home/ubuntu/sky_workdir/Depth-Anything-3/da3_streaming/weights/dino_salad.ckpt'
 
 Model:
   chunk_size: 120
@@ -38,7 +38,7 @@ Model:
 Loop:
   SALAD:
     image_size: [336, 336]
-    batch_size: 32
+    batch_size: 96
     similarity_threshold: 0.85
     top_k: 5
     use_nms: True
