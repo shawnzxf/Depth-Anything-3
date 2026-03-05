@@ -74,22 +74,13 @@ class VPRModel(nn.Module):
 class LoopDetector:
     """Loop detector class for detecting loop closures in image sequences"""
 
-    def __init__(self, image_dir, output="loop_closures.txt", config=None):
+    def __init__(self, config=None):
         """Initialize the loop detector
 
         Args:
-            image_dir: Directory path containing images
-            ckpt_path: Model checkpoint path
-            image_size: Image resize dimensions [height width]
-            batch_size: Batch size for processing
-            similarity_threshold: Similarity threshold for loop closure
-            top_k: Number of nearest neighbors to check for each image
-            use_nms: Whether to use Non-Maximum Suppression (NMS) filtering
-            nms_threshold: NMS threshold for minimum frame difference between loop pairs
-            output: Output file path
+            config: Configuration dictionary containing model and loop detection settings
         """
         self.config = config
-        self.image_dir = image_dir
         self.ckpt_path = self.config["Weights"]["SALAD"]
         self.image_size = self.config["Loop"]["SALAD"]["image_size"]
         self.batch_size = self.config["Loop"]["SALAD"]["batch_size"]
@@ -97,7 +88,6 @@ class LoopDetector:
         self.top_k = self.config["Loop"]["SALAD"]["top_k"]
         self.use_nms = self.config["Loop"]["SALAD"]["use_nms"]
         self.nms_threshold = self.config["Loop"]["SALAD"]["nms_threshold"]
-        self.output = output
 
         self.model = None
         self.device = None
@@ -148,14 +138,14 @@ class LoopDetector:
         self.device = device
         return model, device
 
-    def get_image_paths(self):
+    def get_image_paths(self, image_dir):
         """Get paths of all image files in directory"""
         image_extensions = [".jpg", ".jpeg", ".png"]
         image_paths = []
 
         for ext in image_extensions:
-            image_paths.extend(list(Path(self.image_dir).glob(f"*{ext}")))
-            image_paths.extend(list(Path(self.image_dir).glob(f"*{ext.upper()}")))
+            image_paths.extend(list(Path(image_dir).glob(f"*{ext}")))
+            image_paths.extend(list(Path(image_dir).glob(f"*{ext.upper()}")))
 
         image_paths = sorted(image_paths)
         self.image_paths = image_paths
@@ -165,9 +155,6 @@ class LoopDetector:
         """Extract image feature descriptors"""
         if self.model is None or self.device is None:
             self.load_model()
-
-        if self.image_paths is None:
-            self.get_image_paths()
 
         transform = self._input_transform(self.image_size)
         descriptors = []
@@ -276,12 +263,12 @@ class LoopDetector:
         self.loop_closures = self._ensure_decending_order(loop_closures)
         return self.loop_closures
 
-    def save_results(self):
+    def save_results(self, output):
         """Save loop detection results to file"""
         if self.loop_closures is None:
             self.find_loop_closures()
 
-        with open(self.output, "w") as f:
+        with open(output, "w") as f:
             f.write("# Loop Detection Results (index1, index2, similarity)\n")
             if self.use_nms:
                 f.write(f"# NMS filtering applied, threshold: {self.nms_threshold}\n")
@@ -292,7 +279,7 @@ class LoopDetector:
             for i, path in enumerate(self.image_paths):
                 f.write(f"# {i}: {path}\n")
 
-        print(f"Found {len(self.loop_closures)} loop pairs, results saved to {self.output}")
+        print(f"Found {len(self.loop_closures)} loop pairs, results saved to {output}")
         if self.use_nms:
             print(f"NMS filtering applied, threshold: {self.nms_threshold}")
 
@@ -306,15 +293,24 @@ class LoopDetector:
     def get_loop_list(self):
         return [(idx1, idx2) for idx1, idx2, _ in self.loop_closures]
 
-    def run(self):
-        """Run complete loop detection pipeline"""
+    def run(self, image_dir=None, output="loop_closures.txt", image_paths=None):
+        """Run complete loop detection pipeline
+
+        Args:
+            image_dir: Directory path containing images (used if image_paths is not provided)
+            output: Output file path for results
+            image_paths: Optional list of image paths; if provided, skips reading from image_dir
+        """
         print("Loading model...")
         if self.model is None:
             self.load_model()
 
-        self.get_image_paths()
+        if image_paths is not None:
+            self.image_paths = image_paths
+        else:
+            self.get_image_paths(image_dir)
         if not self.image_paths:
-            print(f"No image files found in {self.image_dir}")
+            print(f"No image files found in {image_dir}")
             return
 
         print(f"Found {len(self.image_paths)} image files")
@@ -323,7 +319,7 @@ class LoopDetector:
 
         self.find_loop_closures()
 
-        self.save_results()
+        self.save_results(output)
 
         return self.loop_closures
 
@@ -372,19 +368,19 @@ def main():
 
     args = parser.parse_args()
 
-    detector = LoopDetector(
-        image_dir=args.image_dir,
-        ckpt_path=args.ckpt_path,
-        image_size=args.image_size,
-        batch_size=args.batch_size,
-        similarity_threshold=args.similarity_threshold,
-        top_k=args.top_k,
-        use_nms=args.use_nms,
-        nms_threshold=args.nms_threshold,
-        output=args.output,
-    )
+    detector = LoopDetector(config={
+        "Weights": {"SALAD": args.ckpt_path},
+        "Loop": {"SALAD": {
+            "image_size": args.image_size,
+            "batch_size": args.batch_size,
+            "similarity_threshold": args.similarity_threshold,
+            "top_k": args.top_k,
+            "use_nms": args.use_nms,
+            "nms_threshold": args.nms_threshold,
+        }},
+    })
 
-    detector.run()
+    detector.run(image_dir=args.image_dir, output=args.output)
 
 
 if __name__ == "__main__":

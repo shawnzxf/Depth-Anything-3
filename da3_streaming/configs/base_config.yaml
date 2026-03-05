@@ -35,6 +35,13 @@ Model:
     sample_ratio: 0.015
     conf_threshold_coef: 0.75 # conf_threshold = np.mean(confs) * conf_threshold_coef
 
+Confidence:
+  enable: True
+  pixel_to_frame_percentile: 75     # percentile of pixel-wise conf to get frame-level score
+  frame_confidence_threshold: 0.2   # frame-level threshold; frames below this are marked False
+  drop_continuous_ratio: 0.2        # drop chunk if continuous False frames >= this ratio of chunk length
+  min_chunks_per_group: 5           # groups smaller than this are dropped
+
 Loop:
   SALAD:
     image_size: [336, 336]
