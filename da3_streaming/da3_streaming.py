@@ -544,9 +544,11 @@ class DA3_Streaming:
 
         if first_frame is not None or last_frame is not None:
             basenames = [os.path.basename(p) for p in img_list]
+            # Detect extension from actual files (supports both .jpg and .png)
+            ext = os.path.splitext(basenames[0])[1] if basenames else ".jpg"
 
             if first_frame is not None:
-                first_fname = f"{first_frame:06d}.png"
+                first_fname = f"{first_frame:06d}{ext}"
                 if first_fname not in basenames:
                     raise ValueError(f"first_frame '{first_fname}' (id={first_frame}) not found in {self.img_dir}")
                 start_idx = basenames.index(first_fname)
@@ -554,7 +556,7 @@ class DA3_Streaming:
                 start_idx = 0
 
             if last_frame is not None:
-                last_fname = f"{last_frame:06d}.png"
+                last_fname = f"{last_frame:06d}{ext}"
                 if last_fname not in basenames:
                     raise ValueError(f"last_frame '{last_fname}' (id={last_frame}) not found in {self.img_dir}")
                 end_idx = basenames.index(last_fname)
