@@ -12,7 +12,46 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
+
+import cv2
 import numpy as np
+
+
+def apply_mask_to_confidence(conf, image_paths, mask_dir):
+    """Zero out confidence where the external binary mask is 255.
+
+    For each frame, loads the corresponding mask (uint8, values 0 or 255)
+    from *mask_dir* (same basename as the image file).  Pixels where the
+    mask is 255 get their confidence set to 0.0; pixels where the mask is 0
+    keep their original confidence.
+
+    Args:
+        conf: np.ndarray of shape [N, H, W] -- pixel-wise confidence scores.
+        image_paths: list of str -- full paths of the chunk's input images
+            (used to derive mask filenames).
+        mask_dir: str -- directory that contains binary mask images (uint8,
+            0 or 255), one per frame, with the same basename as the
+            corresponding input image.
+
+    Returns:
+        np.ndarray of shape [N, H, W] -- masked confidence scores.
+    """
+    conf = conf.copy()
+    h, w = conf.shape[1], conf.shape[2]
+    for i, img_path in enumerate(image_paths):
+        mask_path = os.path.join(mask_dir, os.path.basename(img_path))
+        if not os.path.exists(mask_path):
+            print(f"[Warning] Mask not found for frame: {mask_path}")
+            continue
+        mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
+        if mask is None:
+            print(f"[Warning] Failed to read mask: {mask_path}")
+            continue
+        if mask.shape[0] != h or mask.shape[1] != w:
+            mask = cv2.resize(mask, (w, h), interpolation=cv2.INTER_NEAREST)
+        conf[i][mask == 255] = 0.0
+    return conf
 
 
 def aggregate_pixel_to_frame_confidence(conf, config):

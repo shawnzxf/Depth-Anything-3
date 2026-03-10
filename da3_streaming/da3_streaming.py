@@ -48,6 +48,7 @@ from geometry_utils import (
 )
 from confidence import (
     aggregate_pixel_to_frame_confidence,
+    apply_mask_to_confidence,
     compute_chunk_confidence_groups,
 )
 from alignment import (
@@ -66,10 +67,10 @@ from output import (
 
 class DA3_Streaming:
     @timing
-    def __init__(self, image_dir, save_dir, config, first_frame=None, last_frame=None, config_path=None):
+    def __init__(self, image_dir, save_dir, config, first_frame=None, last_frame=None, config_path=None, mask_dir=None):
         self.config = config
         self.config_path = config_path
-        self.first_frame = first_frame if first_frame is not None else 0
+        self.first_frame = first_frame if first_frame is not None else 1  # frame id starts from 1
         self.last_frame = last_frame
         self._group_frame_start = 0
 
@@ -86,6 +87,7 @@ class DA3_Streaming:
 
         self.img_dir = image_dir
         self.img_list = None
+        self.mask_dir = mask_dir
         self.output_dir = save_dir
         self.delete_temp_files = self.config["Model"]["delete_temp_files"]
 
@@ -312,6 +314,11 @@ class DA3_Streaming:
                 # print(predictions.extrinsics.shape)  # [N, 3, 4] float32 (w2c)
                 # print(predictions.intrinsics.shape)  # [N, 3, 3] float32
         torch.cuda.empty_cache()
+
+        if self.mask_dir is not None:
+            predictions.conf = apply_mask_to_confidence(
+                predictions.conf, chunk_image_paths, self.mask_dir,
+            )
 
         # Save predictions to disk instead of keeping in memory
         if is_loop:
@@ -628,6 +635,9 @@ if __name__ == "__main__":
                         help="Frame ID of the first frame to process (inclusive), e.g. 100")
     parser.add_argument("--last_frame", type=int, required=False, default=None,
                         help="Frame ID of the last frame to process (exclusive), e.g. 200")
+    parser.add_argument("--mask_dir", type=str, required=False, default=None,
+                        help="Directory containing binary mask images (one per frame). "
+                             "Where mask value is non-zero, confidence is zeroed out.")
     args = parser.parse_args()
 
     frame_range = f" frames [{args.first_frame}, {args.last_frame})" if args.first_frame is not None or args.last_frame is not None else ""
@@ -652,7 +662,7 @@ if __name__ == "__main__":
     if config["Model"]["align_lib"] == "numba":
         warmup_numba()
 
-    da3_streaming = DA3_Streaming(image_dir, save_dir, config, first_frame=args.first_frame, last_frame=args.last_frame, config_path=args.config)
+    da3_streaming = DA3_Streaming(image_dir, save_dir, config, first_frame=args.first_frame, last_frame=args.last_frame, config_path=args.config, mask_dir=args.mask_dir)
     da3_streaming.run()
     da3_streaming.close()
 
