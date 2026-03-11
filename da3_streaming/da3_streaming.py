@@ -14,10 +14,6 @@
 #
 # Adapted from [VGGT-Long](https://github.com/DengKaiCQ/VGGT-Long)
 
-"""
-nohup python da3_streaming.py --image_dir /home/ubuntu/sky_workdir/nav_vid_data_pipeline/sample_dataset/z8At5dmBo6M/frames_2k --output_dir /home/ubuntu/sky_workdir/nav_vid_data_pipeline/sample_dataset/z8At5dmBo6M/da3_outputs/frames_2k > /home/ubuntu/sky_workdir/nav_vid_data_pipeline/logs/z8At5dmBo6M_2k_02222251.log 2>&1 &
-"""
-
 import argparse
 import gc
 import glob
@@ -614,6 +610,11 @@ class DA3_Streaming:
         print("Deleting temp dirs done.")
 
         print(f"Saved disk space: {total_space/1024/1024/1024:.4f} GiB")
+
+        # Remove the top-level output directory if it ended up empty
+        if os.path.isdir(self.output_dir) and not os.listdir(self.output_dir):
+            os.rmdir(self.output_dir)
+            print(f"Removed empty output directory: {self.output_dir}")
 
 
 if __name__ == "__main__":
