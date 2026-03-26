@@ -15,8 +15,8 @@ Model:
   scale_compute_method: 'auto' # choose among 'auto', 'ransac' or 'weighted'. It is used when align_method == 'scale+se3'
   align_type: 'dense' # choose between 'dense' or 'sparse'. Sparse align is constructing, not avaible for now
 
-  ref_view_strategy: 'saddle_balanced' # 'middle', 'saddle_balanced', 'first' or 'saddle_sim_range'
-  ref_view_strategy_loop: 'saddle_balanced' # 'middle', 'saddle_balanced', 'first' or 'saddle_sim_range'
+  ref_view_strategy: 'middle' # 'middle', 'saddle_balanced', 'first' or 'saddle_sim_range'
+  ref_view_strategy_loop: 'middle' # 'middle', 'saddle_balanced', 'first' or 'saddle_sim_range'
   depth_threshold: 15.0
 
   save_depth_conf_result: False
