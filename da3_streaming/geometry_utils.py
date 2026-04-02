@@ -113,15 +113,48 @@ def remove_duplicates(data_list):
 
 @timing
 def merge_point_clouds(save_dir, delete_after_merge=False):
-    # Check if there are group subdirectories
-    group_dirs = sorted(glob.glob(os.path.join(save_dir, "group_*")))
+    """Merge point clouds for each group and handle segment distribution.
 
-    for group_dir in group_dirs:
+    For groups with segments (e.g., group_0 has group_0_0, group_0_1):
+    1. Merge individual PLY files in parent group_X/pcd/ into combined_pcd.ply
+    2. Copy combined_pcd.ply to each segment's pcd/ directory
+    3. Delete parent group after distribution
+
+    For groups without segments:
+    - Just merge PLY files as before
+    """
+    # Find all parent group directories (group_0, group_1, not group_0_0)
+    all_dirs = sorted(glob.glob(os.path.join(save_dir, "group_*")))
+    parent_groups = [d for d in all_dirs if os.path.basename(d).count('_') == 1]
+
+    for group_dir in parent_groups:
         pcd_dir = os.path.join(group_dir, "pcd")
-        if os.path.isdir(pcd_dir):
-            all_ply_path = os.path.join(pcd_dir, "combined_pcd.ply")
-            print(f"Merging point clouds for {os.path.basename(group_dir)}")
-            merge_ply_files(pcd_dir, all_ply_path, delete_after_merge)
+        if not os.path.isdir(pcd_dir):
+            continue
+
+        # Merge individual PLY files into combined_pcd.ply
+        combined_ply_path = os.path.join(pcd_dir, "combined_pcd.ply")
+        print(f"Merging point clouds for {os.path.basename(group_dir)}")
+        merge_ply_files(pcd_dir, combined_ply_path, delete_after_merge)
+
+        # Check if this group has segments (e.g., group_0 has group_0_0, group_0_1)
+        group_basename = os.path.basename(group_dir)
+        segment_pattern = os.path.join(save_dir, f"{group_basename}_*")
+        segment_dirs = sorted(glob.glob(segment_pattern))
+
+        if segment_dirs:
+            # Copy combined_pcd.ply to each segment's pcd directory
+            print(f"  Copying combined PCD to {len(segment_dirs)} segments")
+            for segment_dir in segment_dirs:
+                segment_pcd_dir = os.path.join(segment_dir, "pcd")
+                os.makedirs(segment_pcd_dir, exist_ok=True)
+                dest_ply = os.path.join(segment_pcd_dir, "combined_pcd.ply")
+                shutil.copy2(combined_ply_path, dest_ply)
+                print(f"    Copied to {os.path.basename(segment_dir)}")
+
+            # Delete parent group after distributing PCD
+            print(f"  Deleting parent group: {group_dir}")
+            shutil.rmtree(group_dir)
 
 
 def copy_file(src_path, dst_dir):

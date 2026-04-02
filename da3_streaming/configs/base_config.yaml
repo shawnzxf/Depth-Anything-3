@@ -42,6 +42,14 @@ Confidence:
   drop_continuous_ratio: 0.2        # drop chunk if continuous False frames >= this ratio of chunk length
   min_chunks_per_group: 5           # groups smaller than this are dropped
 
+DeltaSplitting:
+  enable: True                      # Set to True to enable delta-based segment splitting
+  max_delta_threshold: 10.0         # Split if delta magnitude > this value (units)
+  rolling_avg_window: 50            # Window size for rolling average calculation
+  rolling_avg_multiplier: 10.0      # Split if delta magnitude > this × rolling avg
+  min_frames: 300                   # Filter out segments with fewer frames
+  min_p50_delta: 0.05               # Filter out segments with p50 delta below this
+
 Loop:
   SALAD:
     image_size: [336, 336]

@@ -59,6 +59,7 @@ from output import (
     save_depth_conf_result,
     write_group_info,
 )
+from delta_splitting import split_group_into_segments, DeltaSplitConfig
 
 
 class DA3_Streaming:
@@ -125,6 +126,10 @@ class DA3_Streaming:
         if self.loop_enable:
             self.loop_detector = LoopDetector(config=self.config)
             self.loop_detector.load_model()
+
+        # Delta-based segment splitting configuration
+        delta_split_config_dict = self.config.get("DeltaSplitting", {})
+        self.delta_split_config = DeltaSplitConfig(**delta_split_config_dict)
 
     # -- Confidence filtering (delegates to confidence.py) --
 
@@ -497,6 +502,33 @@ class DA3_Streaming:
             self._write_group_info(
                 group_output_dir, group_idx, group_chunk_ids, all_chunk_indices,
             )
+
+            # Delta-based segment splitting (if enabled)
+            if self.delta_split_config.enable:
+                print(f"\n  --- Delta-based segment splitting for group_{group_idx} ---")
+                try:
+                    segment_dirs = split_group_into_segments(
+                        group_output_dir,
+                        self.delta_split_config
+                    )
+                    print(f"  Created {len(segment_dirs)} segments")
+                except ValueError as e:
+                    # No valid segments after filtering - delete this group
+                    print(f"  [WARNING] {e}")
+                    print(f"  Deleting group {group_idx} due to insufficient valid segments")
+                    shutil.rmtree(group_output_dir)
+
+                    # Check if there are any other group directories in the parent clip dir
+                    clip_dir = os.path.dirname(group_output_dir)
+                    remaining_groups = [d for d in os.listdir(clip_dir)
+                                      if os.path.isdir(os.path.join(clip_dir, d)) and d.startswith('group_')]
+
+                    if not remaining_groups:
+                        print(f"  No other groups remaining in clip directory. Deleting {clip_dir}")
+                        shutil.rmtree(clip_dir)
+
+                    print(f"  ---------- [Group {group_idx + 1}/{len(chunk_groups)}] SKIPPED ----------")
+                    continue
 
             # Free memory between groups
             gc.collect()
