@@ -518,15 +518,6 @@ class DA3_Streaming:
                     print(f"  Deleting group {group_idx} due to insufficient valid segments")
                     shutil.rmtree(group_output_dir)
 
-                    # Check if there are any other group directories in the parent clip dir
-                    clip_dir = os.path.dirname(group_output_dir)
-                    remaining_groups = [d for d in os.listdir(clip_dir)
-                                      if os.path.isdir(os.path.join(clip_dir, d)) and d.startswith('group_')]
-
-                    if not remaining_groups:
-                        print(f"  No other groups remaining in clip directory. Deleting {clip_dir}")
-                        shutil.rmtree(clip_dir)
-
                     print(f"  ---------- [Group {group_idx + 1}/{len(chunk_groups)}] SKIPPED ----------")
                     continue
 
@@ -535,6 +526,18 @@ class DA3_Streaming:
             torch.cuda.empty_cache()
 
             print(f"  ---------- [Group {group_idx + 1}/{len(chunk_groups)}] END ----------")
+
+        # Check if there are any other group directories in the parent clip dir
+        clip_dir = os.path.dirname(group_output_dir)
+        remaining_groups = [d for d in os.listdir(clip_dir)
+                          if os.path.isdir(os.path.join(clip_dir, d)) and d.startswith('group_')]
+
+        # This is to avoid leaving an almost empty clip dir (sub-dir _tmp_results_unaligned is
+        # the only remaining content), allowing generating a NUM_FRAMES_0 marker and treating
+        # this clip as a successful result.
+        if not remaining_groups:
+            print(f"  No other groups remaining in clip directory. Deleting {clip_dir}")
+            shutil.rmtree(clip_dir)
 
         print(f"========== [Phase 3/3] END ==========")
 
