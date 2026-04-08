@@ -17,6 +17,8 @@
 import argparse
 import os
 import sys
+import time
+import random
 from pathlib import Path
 import faiss
 import torch
@@ -30,6 +32,51 @@ SALAD_ROOT = os.path.join(CURRENT_DIR, "salad")
 if SALAD_ROOT not in sys.path:
     sys.path.insert(0, SALAD_ROOT)
 from loop_utils.salad.models import helper
+
+
+def retry_with_backoff(func, max_retries=5, base_delay=1.0, max_delay=32.0, *args, **kwargs):
+    """Retry a function with exponential backoff and random jitter.
+
+    Args:
+        func: Function to retry
+        max_retries: Maximum number of retry attempts
+        base_delay: Initial delay in seconds
+        max_delay: Maximum delay in seconds
+        *args, **kwargs: Arguments to pass to func
+
+    Returns:
+        Result of func if successful
+
+    Raises:
+        Last exception if all retries fail
+    """
+    last_exception = None
+
+    for attempt in range(max_retries):
+        try:
+            return func(*args, **kwargs)
+        except Exception as e:
+            last_exception = e
+            # Check if it's a retryable error (5xx errors, connection errors, etc.)
+            error_msg = str(e).lower()
+            is_retryable = any(
+                pattern in error_msg
+                for pattern in ["5xx", "500", "502", "503", "504", "timeout", "connection", "unavailable"]
+            )
+
+            if not is_retryable or attempt == max_retries - 1:
+                raise
+
+            # Calculate delay with exponential backoff and jitter
+            delay = min(base_delay * (2 ** attempt), max_delay)
+            jitter = random.uniform(0, delay * 0.1)  # 10% jitter
+            total_delay = delay + jitter
+
+            print(f"Attempt {attempt + 1}/{max_retries} failed: {e}")
+            print(f"Retrying in {total_delay:.2f} seconds...")
+            time.sleep(total_delay)
+
+    raise last_exception
 
 
 class VPRModel(nn.Module):
@@ -60,9 +107,23 @@ class VPRModel(nn.Module):
         self.agg_config = agg_config
 
         # ----------------------------------
-        # get the backbone and the aggregator
-        self.backbone = helper.get_backbone(backbone_arch, backbone_config)
-        self.aggregator = helper.get_aggregator(agg_arch, agg_config)
+        # get the backbone and the aggregator with retry logic for external service calls
+        self.backbone = retry_with_backoff(
+            helper.get_backbone,
+            max_retries=5,
+            base_delay=1.0,
+            max_delay=32.0,
+            backbone_arch=backbone_arch,
+            backbone_config=backbone_config
+        )
+        self.aggregator = retry_with_backoff(
+            helper.get_aggregator,
+            max_retries=5,
+            base_delay=1.0,
+            max_delay=32.0,
+            agg_arch=agg_arch,
+            agg_config=agg_config
+        )
 
     # the forward pass of the lightning model
     def forward(self, x):
