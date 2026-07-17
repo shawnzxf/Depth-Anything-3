@@ -49,6 +49,7 @@ DeltaSplitting:
   rolling_avg_multiplier: 10.0      # Split if delta magnitude > this × rolling avg
   min_frames: 300                   # Filter out segments with fewer frames
   min_p50_delta: 0.05               # Filter out segments with p50 delta below this
+  max_p50_delta: 0.4                # Filter out segments with p50 delta above this (~2.0 u/s at 5fps)
 
 Loop:
   SALAD:

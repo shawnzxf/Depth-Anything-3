@@ -26,7 +26,6 @@ from typing import List, Dict
 
 import numpy as np
 
-
 @dataclass
 class DeltaSplitConfig:
     """Configuration for delta-based segment splitting."""
@@ -36,6 +35,7 @@ class DeltaSplitConfig:
     rolling_avg_multiplier: float = 10.0
     min_frames: int = 300
     min_p50_delta: float = 0.01
+    max_p50_delta: float = 0.4
 
 
 @dataclass
@@ -212,6 +212,7 @@ def filter_segments(segments: List[SegmentInterval], config: DeltaSplitConfig, f
     Keeps segments that satisfy ALL criteria:
     - num_frames >= min_frames
     - p50_delta >= min_p50_delta
+    - p50_delta <= max_p50_delta (if max_p50_delta > 0; filters fast-moving scenes like trains)
 
     Args:
         segments: List of SegmentInterval objects
@@ -235,6 +236,12 @@ def filter_segments(segments: List[SegmentInterval], config: DeltaSplitConfig, f
         if segment.p50_delta < config.min_p50_delta:
             print(f"  Filtered out segment frame_ids [{first_frame_id + segment.start_idx}, {first_frame_id + segment.end_idx}): "
                        f"p50 delta too low ({segment.p50_delta:.6f} < {config.min_p50_delta})")
+            continue
+
+        if config.max_p50_delta > 0 and segment.p50_delta > config.max_p50_delta:
+            print(f"  Filtered out segment frame_ids [{first_frame_id + segment.start_idx}, {first_frame_id + segment.end_idx}): "
+                       f"p50 delta too high ({segment.p50_delta:.6f} > {config.max_p50_delta}), "
+                       f"median speed ~{segment.p50_delta * 5:.2f} u/s assuming 5fps")
             continue
 
         filtered.append(segment)
