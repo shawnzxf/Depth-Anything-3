@@ -681,6 +681,15 @@ if __name__ == "__main__":
 
     config = load_config(args.config)
 
+    # Resolve relative weight paths against this script's directory (where
+    # download_weights.sh places weights/), so they work no matter the cwd or
+    # where DA3 is installed (<repo>/da3 locally, /opt/da3 in the baked image).
+    _script_dir = os.path.dirname(os.path.abspath(__file__))
+    for _key in ("DA3", "DA3_CONFIG", "SALAD"):
+        _path = config["Weights"][_key]
+        if not os.path.isabs(_path):
+            config["Weights"][_key] = os.path.join(_script_dir, _path)
+
     image_dir = args.image_dir
 
     if args.output_dir is not None:
