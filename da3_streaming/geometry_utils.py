@@ -142,7 +142,13 @@ def merge_point_clouds(save_dir, delete_after_merge=False):
         segment_pattern = os.path.join(save_dir, f"{group_basename}_*")
         segment_dirs = sorted(glob.glob(segment_pattern))
 
-        if segment_dirs:
+        # merge_ply_files is a no-op when the pcd dir has no source PLYs, so
+        # combined_pcd.ply may not exist. Skip distribution rather than crash on
+        # the copy below (defensive: with the apply_alignment fix, chunk 0 always
+        # writes 0_pcd.ply, so this should not normally trigger).
+        if segment_dirs and not os.path.exists(combined_ply_path):
+            print(f"  [WARNING] {combined_ply_path} not found; skipping PCD distribution")
+        elif segment_dirs:
             # Copy combined_pcd.ply to each segment's pcd directory
             print(f"  Copying combined PCD to {len(segment_dirs)} segments")
             for segment_dir in segment_dirs:

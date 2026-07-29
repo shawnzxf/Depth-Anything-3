@@ -362,6 +362,36 @@ def apply_alignment(chunk_indices, sim3_list, get_chunk_file_path_fn,
     print("Apply alignment")
 
     sim3_list = accumulate_sim3_transforms(sim3_list)
+
+    # Chunk 0 is the reference frame (identity transform); always write it out
+    # before the pairwise loop. This must run unconditionally because a short
+    # clip (<= chunk_size frames, e.g. a 15s clip at 5fps) produces a single
+    # chunk, in which case the `range(len - 1)` loop below never executes and
+    # chunk_0.npy / 0_pcd.ply would otherwise never be written.
+    chunk_data_first = np.load(
+        get_chunk_file_path_fn(0), allow_pickle=True
+    ).item()
+    np.save(os.path.join(result_aligned_dir, "chunk_0.npy"), chunk_data_first)
+    points_first = depth_to_point_cloud_vectorized(
+        chunk_data_first.depth,
+        chunk_data_first.intrinsics,
+        chunk_data_first.extrinsics,
+    )
+    colors_first = chunk_data_first.processed_images
+    confs_first = chunk_data_first.conf
+    ply_path_first = os.path.join(pcd_dir, "0_pcd.ply")
+    save_confident_pointcloud_batch(
+        points=points_first,  # shape: (H, W, 3)
+        colors=colors_first,  # shape: (H, W, 3)
+        confs=confs_first,  # shape: (H, W)
+        output_path=ply_path_first,
+        conf_threshold=np.mean(confs_first)
+        * config["Model"]["Pointcloud_Save"]["conf_threshold_coef"],
+        sample_ratio=config["Model"]["Pointcloud_Save"]["sample_ratio"],
+    )
+    if config["Model"]["save_depth_conf_result"] and save_depth_conf_fn is not None:
+        save_depth_conf_fn(chunk_data_first, 0, 1, np.eye(3), np.array([0, 0, 0]))
+
     for chunk_idx in range(len(chunk_indices) - 1):
         print(f"Applying {chunk_idx+1} -> {chunk_idx} (Total {len(chunk_indices)-1})")
         s, R, t = sim3_list[chunk_idx]
@@ -385,32 +415,6 @@ def apply_alignment(chunk_indices, sim3_list, get_chunk_file_path_fn,
 
         aligned_path = os.path.join(result_aligned_dir, f"chunk_{chunk_idx+1}.npy")
         np.save(aligned_path, aligned_chunk_data)
-
-        if chunk_idx == 0:
-            chunk_data_first = np.load(
-                get_chunk_file_path_fn(0), allow_pickle=True
-            ).item()
-            np.save(os.path.join(result_aligned_dir, "chunk_0.npy"), chunk_data_first)
-            points_first = depth_to_point_cloud_vectorized(
-                chunk_data_first.depth,
-                chunk_data_first.intrinsics,
-                chunk_data_first.extrinsics,
-            )
-            colors_first = chunk_data_first.processed_images
-            confs_first = chunk_data_first.conf
-            ply_path_first = os.path.join(pcd_dir, "0_pcd.ply")
-            save_confident_pointcloud_batch(
-                points=points_first,  # shape: (H, W, 3)
-                colors=colors_first,  # shape: (H, W, 3)
-                confs=confs_first,  # shape: (H, W)
-                output_path=ply_path_first,
-                conf_threshold=np.mean(confs_first)
-                * config["Model"]["Pointcloud_Save"]["conf_threshold_coef"],
-                sample_ratio=config["Model"]["Pointcloud_Save"]["sample_ratio"],
-            )
-            if config["Model"]["save_depth_conf_result"] and save_depth_conf_fn is not None:
-                predictions = chunk_data_first
-                save_depth_conf_fn(predictions, 0, 1, np.eye(3), np.array([0, 0, 0]))
 
         points = aligned_chunk_data["world_points"].reshape(-1, 3)
         colors = (aligned_chunk_data["images"].reshape(-1, 3)).astype(np.uint8)

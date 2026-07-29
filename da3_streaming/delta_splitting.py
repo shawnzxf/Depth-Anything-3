@@ -33,7 +33,7 @@ class DeltaSplitConfig:
     max_delta_threshold: float = 10.0
     rolling_avg_window: int = 50
     rolling_avg_multiplier: float = 10.0
-    min_frames: int = 300
+    min_frames: int = 75
     min_p50_delta: float = 0.01
     max_p50_delta: float = 0.4
 

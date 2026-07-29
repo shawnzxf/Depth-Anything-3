@@ -43,14 +43,14 @@ Confidence:
   pixel_to_frame_percentile: 75     # percentile of pixel-wise conf to get frame-level score
   frame_confidence_threshold: 0.2   # frame-level threshold; frames below this are marked False
   drop_continuous_ratio: 0.2        # drop chunk if continuous False frames >= this ratio of chunk length
-  min_chunks_per_group: 5           # groups smaller than this are dropped
+  min_chunks_per_group: 1           # groups smaller than this are dropped (1 => keep single-chunk groups so <=24s clips survive)
 
 DeltaSplitting:
   enable: True                      # Set to True to enable delta-based segment splitting
   max_delta_threshold: 10.0         # Split if delta magnitude > this value (units)
   rolling_avg_window: 50            # Window size for rolling average calculation
   rolling_avg_multiplier: 10.0      # Split if delta magnitude > this × rolling avg
-  min_frames: 300                   # Filter out segments with fewer frames
+  min_frames: 75                    # Filter out segments with fewer frames (75 = 15s at 5fps)
   min_p50_delta: 0.05               # Filter out segments with p50 delta below this
   max_p50_delta: 0.4                # Filter out segments with p50 delta above this (~2.0 u/s at 5fps)
 
