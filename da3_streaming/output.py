@@ -40,12 +40,15 @@ def save_depth_conf_result(predictions, chunk_idx, s, R, T,
 
     chunk_start, chunk_end = chunk_indices[chunk_idx]
 
-    if chunk_idx == 0:
-        save_indices = list(range(0, chunk_end - chunk_start - overlap_e))
-    elif chunk_idx == len(chunk_indices) - 1:
-        save_indices = list(range(overlap_s, chunk_end - chunk_start))
-    else:
-        save_indices = list(range(overlap_s, chunk_end - chunk_start - overlap_e))
+    # Trim the leading overlap on every chunk except the first, and the
+    # trailing overlap on every chunk except the last. A single chunk is both
+    # first and last, so it must keep its full range (else the tail frames get
+    # dropped / never saved).
+    is_first = chunk_idx == 0
+    is_last = chunk_idx == len(chunk_indices) - 1
+    save_start = 0 if is_first else overlap_s
+    save_end = (chunk_end - chunk_start) if is_last else (chunk_end - chunk_start - overlap_e)
+    save_indices = list(range(save_start, save_end))
 
     print("[save_depth_conf_result] save_indices:")
 
@@ -202,8 +205,17 @@ def save_camera_poses(all_camera_poses, all_camera_intrinsics, sim3_list,
     first_chunk_range, first_chunk_extrinsics = all_camera_poses[0]
     _, first_chunk_intrinsics = all_camera_intrinsics[0]
 
+    # Only trim the tail overlap when a subsequent chunk will cover it.
+    # When the first chunk is also the last (single-chunk case), keep the
+    # full range or those frames are never filled (stay None).
+    first_chunk_end = (
+        first_chunk_range[1] - overlap_e
+        if len(all_camera_poses) > 1
+        else first_chunk_range[1]
+    )
+
     for i, idx in enumerate(
-        range(first_chunk_range[0], first_chunk_range[1] - overlap_e)
+        range(first_chunk_range[0], first_chunk_end)
     ):
         w2c = np.eye(4)
         w2c[:3, :] = first_chunk_extrinsics[i]
