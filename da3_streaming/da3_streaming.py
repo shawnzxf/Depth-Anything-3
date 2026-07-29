@@ -509,7 +509,8 @@ class DA3_Streaming:
                 try:
                     segment_dirs = split_group_into_segments(
                         group_output_dir,
-                        self.delta_split_config
+                        self.delta_split_config,
+                        save_depth_conf_result=self.config["Model"]["save_depth_conf_result"]
                     )
                     print(f"  Created {len(segment_dirs)} segments")
                 except ValueError as e:

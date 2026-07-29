@@ -457,6 +457,44 @@ def write_camera_poses_ply(segment_dir: str, poses: List[np.ndarray],
     print(f"Wrote camera frustum PLY to {ply_path}")
 
 
+def copy_segment_npz_files(parent_dir: str, segment_dir: str,
+                           segment_abs_poses: List[Dict]):
+    """Copy this segment's per-frame depth/conf .npz files from the parent.
+
+    The parent group's per-frame results live in <parent_dir>/results_output/
+    as frame_<frame_id>.npz, where <frame_id> matches the "frame_id" field of
+    camera_absolute_poses.json (both use the same first_frame_offset). Only the
+    frames belonging to this segment are copied, not the whole parent dir.
+
+    Args:
+        parent_dir: Path to parent group directory
+        segment_dir: Path to segment directory to create
+        segment_abs_poses: Absolute pose dicts for this segment (each has frame_id)
+    """
+    parent_results_dir = os.path.join(parent_dir, "results_output")
+    if not os.path.isdir(parent_results_dir):
+        print(f"  Skipped results_output copy (not found in {parent_dir})")
+        return
+
+    segment_results_dir = os.path.join(segment_dir, "results_output")
+    os.makedirs(segment_results_dir, exist_ok=True)
+
+    copied = 0
+    missing = 0
+    for pose in segment_abs_poses:
+        frame_id = pose["frame_id"]
+        filename = f"frame_{frame_id}.npz"
+        src = os.path.join(parent_results_dir, filename)
+        if os.path.exists(src):
+            shutil.copy2(src, os.path.join(segment_results_dir, filename))
+            copied += 1
+        else:
+            missing += 1
+
+    print(f"  Copied {copied} npz files to {segment_results_dir}" +
+          (f" ({missing} missing)" if missing else ""))
+
+
 def write_segment_info(segment_dir: str, segment: SegmentInterval,
                        first_pose: Dict, parent_group_info: Dict):
     """Write segment metadata to group_info.json.
@@ -502,7 +540,8 @@ def create_segment_output(parent_dir: str, segment_dir: str,
                           segment: SegmentInterval,
                           parent_poses: List[str],
                           parent_abs_poses: List[Dict],
-                          parent_intrinsics: List[str]):
+                          parent_intrinsics: List[str],
+                          save_depth_conf_result: bool = False):
     """Create segment directory and write output files.
 
     Note: pcd/ directory is NOT copied here - it will be handled later in
@@ -515,6 +554,8 @@ def create_segment_output(parent_dir: str, segment_dir: str,
         parent_poses: Pre-loaded parent camera poses
         parent_abs_poses: Pre-loaded parent absolute poses
         parent_intrinsics: Pre-loaded parent intrinsics
+        save_depth_conf_result: If True, copy this segment's per-frame depth/conf
+            .npz files from the parent's results_output/ directory
     """
     os.makedirs(segment_dir, exist_ok=True)
     print(f"Creating segment output in {segment_dir}")
@@ -550,6 +591,10 @@ def create_segment_output(parent_dir: str, segment_dir: str,
     segment_intrinsics_np = parse_intrinsic_lines_to_numpy(segment_intrinsics)
     write_camera_poses_ply(segment_dir, segment_poses_np, segment_intrinsics_np)
 
+    # 3b. Copy this segment's per-frame depth/conf .npz files from the parent
+    if save_depth_conf_result:
+        copy_segment_npz_files(parent_dir, segment_dir, segment_abs_poses)
+
     # 4. Load parent group_info.json for reference
     parent_info_path = os.path.join(parent_dir, "group_info.json")
     if os.path.exists(parent_info_path):
@@ -562,7 +607,8 @@ def create_segment_output(parent_dir: str, segment_dir: str,
     write_segment_info(segment_dir, segment, segment_abs_poses[0], parent_group_info)
 
 
-def split_group_into_segments(group_dir: str, config: DeltaSplitConfig) -> List[str]:
+def split_group_into_segments(group_dir: str, config: DeltaSplitConfig,
+                              save_depth_conf_result: bool = False) -> List[str]:
     """Split a group into segments based on pose delta criteria.
 
     This is the main entry point for delta-based segment splitting.
@@ -570,6 +616,8 @@ def split_group_into_segments(group_dir: str, config: DeltaSplitConfig) -> List[
     Args:
         group_dir: Path to group directory
         config: DeltaSplitConfig with thresholds
+        save_depth_conf_result: If True, copy each segment's per-frame depth/conf
+            .npz files from the parent group's results_output/ directory
 
     Returns:
         List of segment directory paths created
@@ -617,7 +665,8 @@ def split_group_into_segments(group_dir: str, config: DeltaSplitConfig) -> List[
         print(f"Creating segment {segment_idx + 1}/{len(filtered_segments)}: {segment_name} "
               f"(frame_ids [{first_frame_id + segment.start_idx}, {first_frame_id + segment.end_idx}))")
         create_segment_output(group_dir, segment_dir, segment,
-                              parent_c2w_poses, abs_poses, parent_intrinsics)
+                              parent_c2w_poses, abs_poses, parent_intrinsics,
+                              save_depth_conf_result=save_depth_conf_result)
         segment_dirs.append(segment_dir)
 
     # 8. Parent group is kept for now (will be deleted after PCD merge in geometry_utils.py)

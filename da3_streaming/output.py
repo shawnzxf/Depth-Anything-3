@@ -78,7 +78,7 @@ def save_depth_conf_result(predictions, chunk_idx, s, R, T,
             )
         else:
             np.savez_compressed(
-                filepath, image=image, depth=depth, conf=conf, intrinsics=intrinsics
+                filepath, depth=depth, conf=conf, intrinsics=intrinsics
             )
     print("")
 
