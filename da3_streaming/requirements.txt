@@ -5,3 +5,4 @@ einops
 safetensors
 numba
 pypose
+blosc2

@@ -14,14 +14,78 @@
 
 import json
 import os
+import pickle
 
+import blosc2
 import numpy as np
+
+# On-disk format for per-frame results is a blosc2-compressed container
+# (see save_blosc2_npz), NOT a numpy .npz, so it gets its own extension.
+FRAME_FILE_EXT = ".b2nz"
+FRAME_FILE_GLOB = f"frame_*{FRAME_FILE_EXT}"
+
+
+def frame_filename(frame_id):
+    """Return the per-frame result filename for a global frame id."""
+    return f"frame_{frame_id}{FRAME_FILE_EXT}"
+
+
+# Lossless blosc2 codec tuned for the smooth depth/conf volumes: ZSTD with a
+# SHUFFLE + BYTEDELTA filter pipeline. This gives a better ratio and is much
+# faster than np.savez_compressed's zlib on this data (see the sweep in
+# depth_compression/compression_bench/bench_blosc2.py).
+_BLOSC2_CODEC = blosc2.Codec.ZSTD
+_BLOSC2_FILTERS = [blosc2.Filter.SHUFFLE, blosc2.Filter.BYTEDELTA]
+_BLOSC2_CLEVEL = 5
+
+
+def _blosc2_cparams(array):
+    # typesize must match the element width or SHUFFLE groups the wrong byte
+    # planes and the ratio degrades.
+    return blosc2.CParams(
+        codec=_BLOSC2_CODEC,
+        filters=list(_BLOSC2_FILTERS),
+        clevel=_BLOSC2_CLEVEL,
+        typesize=array.itemsize,
+    )
+
+
+def save_blosc2_npz(filepath, **arrays):
+    """Save named numpy arrays to a single blosc2-compressed file.
+
+    Drop-in replacement for ``np.savez_compressed`` that uses lossless
+    ZSTD + SHUFFLE/BYTEDELTA compression. The container is a pickled dict
+    mapping each array name to its ``blosc2.pack_tensor`` blob; read it back
+    with :func:`load_blosc2_npz`.
+    """
+    packed = {}
+    for name, value in arrays.items():
+        array = np.ascontiguousarray(value)
+        # pack_tensor requires at least 1-D; promote 0-d scalars (e.g. `s`).
+        if array.ndim == 0:
+            array = array.reshape(1)
+        packed[name] = blosc2.pack_tensor(array, cparams=_blosc2_cparams(array))
+    with open(filepath, "wb") as f:
+        pickle.dump(packed, f, protocol=pickle.HIGHEST_PROTOCOL)
+
+
+def load_blosc2_npz(filepath):
+    """Load arrays written by :func:`save_blosc2_npz`.
+
+    Returns a dict mapping each array name to its numpy array.
+    """
+    with open(filepath, "rb") as f:
+        packed = pickle.load(f)
+    return {name: blosc2.unpack_tensor(blob) for name, blob in packed.items()}
 
 
 def save_depth_conf_result(predictions, chunk_idx, s, R, T,
                            chunk_indices, overlap_s, overlap_e,
                            result_output_dir, config, first_frame_offset=0):
-    """Save per-frame depth, confidence, and intrinsics to compressed .npz files.
+    """Save per-frame depth, confidence, and intrinsics to compressed files.
+
+    Each frame is written as a blosc2-compressed container (``.b2nz``); see
+    :func:`save_blosc2_npz`.
 
     Args:
         predictions: object with .processed_images, .depth, .conf, .intrinsics, .extrinsics.
@@ -30,7 +94,7 @@ def save_depth_conf_result(predictions, chunk_idx, s, R, T,
         chunk_indices: list of (start, end) tuples.
         overlap_s: int -- overlap start offset.
         overlap_e: int -- overlap end offset.
-        result_output_dir: str -- directory path for output .npz files.
+        result_output_dir: str -- directory path for output frame files.
         config: dict.
         first_frame_offset: int -- absolute video first frame id + relative group first frame id
     """
@@ -61,11 +125,11 @@ def save_depth_conf_result(predictions, chunk_idx, s, R, T,
         conf = predictions.conf[local_idx]  # [H, W] float32
         intrinsics = predictions.intrinsics[local_idx]  # [3, 3] float32
 
-        filename = f"frame_{global_idx}.npz"
+        filename = frame_filename(global_idx)
         filepath = os.path.join(result_output_dir, filename)
 
         if config["Model"]["save_debug_info"]:
-            np.savez_compressed(
+            save_blosc2_npz(
                 filepath,
                 image=image,
                 depth=depth,
@@ -77,7 +141,7 @@ def save_depth_conf_result(predictions, chunk_idx, s, R, T,
                 T=T,
             )
         else:
-            np.savez_compressed(
+            save_blosc2_npz(
                 filepath, depth=depth, conf=conf, intrinsics=intrinsics
             )
     print("")

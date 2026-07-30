@@ -5,6 +5,7 @@ import numpy as np
 from loop_utils.sim3utils import save_confident_pointcloud_batch
 
 from da3_streaming import depth_to_point_cloud_vectorized
+from output import FRAME_FILE_GLOB, load_blosc2_npz
 
 
 def read_camera_poses(pose_file):
@@ -24,12 +25,12 @@ def create_point_cloud(npz_folder, pose_file, output_ply, conf_threshold_coef, s
     poses = read_camera_poses(pose_file)
     print(f"Read {len(poses)} camera poses")
 
-    npz_files = sorted(glob(os.path.join(npz_folder, "frame_*.npz")))
+    npz_files = sorted(glob(os.path.join(npz_folder, FRAME_FILE_GLOB)))
     npz_files = [f for f in npz_files if os.path.basename(f).startswith("frame_")]
 
     npz_files.sort(key=lambda x: int(os.path.basename(x).split("_")[1].split(".")[0]))
 
-    print(f"Found {len(npz_files)} .npz files")
+    print(f"Found {len(npz_files)} frame files")
 
     assert len(poses) == len(
         npz_files
@@ -43,7 +44,7 @@ def create_point_cloud(npz_folder, pose_file, output_ply, conf_threshold_coef, s
         if idx % 50 == 0:
             print(f"Processing frame {idx}/{len(npz_files)}...")
 
-        data = np.load(npz_path)
+        data = load_blosc2_npz(npz_path)
 
         image = data["image"]  # [H, W, 3] uint8
         depth = data["depth"]  # [H, W] float32

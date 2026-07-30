@@ -26,6 +26,8 @@ from typing import List, Dict
 
 import numpy as np
 
+from output import frame_filename
+
 @dataclass
 class DeltaSplitConfig:
     """Configuration for delta-based segment splitting."""
@@ -457,12 +459,12 @@ def write_camera_poses_ply(segment_dir: str, poses: List[np.ndarray],
     print(f"Wrote camera frustum PLY to {ply_path}")
 
 
-def copy_segment_npz_files(parent_dir: str, segment_dir: str,
+def copy_segment_b2nz_files(parent_dir: str, segment_dir: str,
                            segment_abs_poses: List[Dict]):
-    """Copy this segment's per-frame depth/conf .npz files from the parent.
+    """Copy this segment's per-frame depth/conf result files from the parent.
 
     The parent group's per-frame results live in <parent_dir>/results_output/
-    as frame_<frame_id>.npz, where <frame_id> matches the "frame_id" field of
+    as frame_<frame_id>.b2nz, where <frame_id> matches the "frame_id" field of
     camera_absolute_poses.json (both use the same first_frame_offset). Only the
     frames belonging to this segment are copied, not the whole parent dir.
 
@@ -483,7 +485,7 @@ def copy_segment_npz_files(parent_dir: str, segment_dir: str,
     missing = 0
     for pose in segment_abs_poses:
         frame_id = pose["frame_id"]
-        filename = f"frame_{frame_id}.npz"
+        filename = frame_filename(frame_id)
         src = os.path.join(parent_results_dir, filename)
         if os.path.exists(src):
             shutil.copy2(src, os.path.join(segment_results_dir, filename))
@@ -491,7 +493,7 @@ def copy_segment_npz_files(parent_dir: str, segment_dir: str,
         else:
             missing += 1
 
-    print(f"  Copied {copied} npz files to {segment_results_dir}" +
+    print(f"  Copied {copied} frame files to {segment_results_dir}" +
           (f" ({missing} missing)" if missing else ""))
 
 
@@ -555,7 +557,7 @@ def create_segment_output(parent_dir: str, segment_dir: str,
         parent_abs_poses: Pre-loaded parent absolute poses
         parent_intrinsics: Pre-loaded parent intrinsics
         save_depth_conf_result: If True, copy this segment's per-frame depth/conf
-            .npz files from the parent's results_output/ directory
+            result files from the parent's results_output/ directory
     """
     os.makedirs(segment_dir, exist_ok=True)
     print(f"Creating segment output in {segment_dir}")
@@ -591,9 +593,9 @@ def create_segment_output(parent_dir: str, segment_dir: str,
     segment_intrinsics_np = parse_intrinsic_lines_to_numpy(segment_intrinsics)
     write_camera_poses_ply(segment_dir, segment_poses_np, segment_intrinsics_np)
 
-    # 3b. Copy this segment's per-frame depth/conf .npz files from the parent
+    # 3b. Copy this segment's per-frame depth/conf result files from the parent
     if save_depth_conf_result:
-        copy_segment_npz_files(parent_dir, segment_dir, segment_abs_poses)
+        copy_segment_b2nz_files(parent_dir, segment_dir, segment_abs_poses)
 
     # 4. Load parent group_info.json for reference
     parent_info_path = os.path.join(parent_dir, "group_info.json")
@@ -617,7 +619,7 @@ def split_group_into_segments(group_dir: str, config: DeltaSplitConfig,
         group_dir: Path to group directory
         config: DeltaSplitConfig with thresholds
         save_depth_conf_result: If True, copy each segment's per-frame depth/conf
-            .npz files from the parent group's results_output/ directory
+            result files from the parent group's results_output/ directory
 
     Returns:
         List of segment directory paths created
