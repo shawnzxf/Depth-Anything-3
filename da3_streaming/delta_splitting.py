@@ -478,7 +478,7 @@ def copy_segment_b2nz_files(parent_dir: str, segment_dir: str,
         print(f"  Skipped results_output copy (not found in {parent_dir})")
         return
 
-    segment_results_dir = os.path.join(segment_dir, "results_output")
+    segment_results_dir = os.path.join(segment_dir, "depth_per_frame")
     os.makedirs(segment_results_dir, exist_ok=True)
 
     copied = 0
